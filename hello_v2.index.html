@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Hello</title>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital@0;1&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: #0e0e0e;
+      font-family: "Courier New", Courier, monospace;
+      font-size: 16px;
+      color: #000;
+      min-height: 100vh;
+    }
+
+    #gate {
+      position: fixed;
+      inset: 0;
+      background: #0e0e0e;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      animation: fadeIn 1s ease forwards;
+      z-index: 10;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    #gate label {
+      font-family: 'Playfair Display', Georgia, serif;
+      font-style: italic;
+      font-size: 13px;
+      letter-spacing: 0.2em;
+      color: #555;
+      text-transform: lowercase;
+    }
+
+    #passcode-input {
+      background: transparent;
+      border: none;
+      border-bottom: 1px solid #333;
+      outline: none;
+      font-family: 'Playfair Display', Georgia, serif;
+      font-size: 28px;
+      color: #f0ece4;
+      text-align: center;
+      width: 160px;
+      padding: 6px 0;
+      letter-spacing: 0.3em;
+      caret-color: #f0ece4;
+      transition: border-color 0.3s;
+    }
+
+    #passcode-input:focus {
+      border-bottom-color: #f0ece4;
+    }
+
+    #gate-error {
+      font-family: 'Playfair Display', Georgia, serif;
+      font-style: italic;
+      font-size: 12px;
+      color: #555;
+      display: none;
+      letter-spacing: 0.1em;
+    }
+
+    #main {
+      display: none;
+      padding: 40px;
+      background: #fff;
+      min-height: 100vh;
+    }
+
+    .entry {
+      margin-bottom: 24px;
+    }
+
+    .entry .saved-text {
+      color: #000;
+      margin-bottom: 4px;
+    }
+
+    .active-entry {
+      outline: none;
+      color: #000;
+    }
+
+    .counter {
+      font-size: 12px;
+      color: #999;
+      margin-top: 4px;
+    }
+  </style>
+</head>
+<body>
+
+  <div id="gate">
+    <label for="passcode-input">enter passcode</label>
+    <input type="password" id="passcode-input" autofocus autocomplete="off" />
+    <div id="gate-error">incorrect — try again</div>
+  </div>
+
+  <div id="main" id="messages-container">
+  </div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/12.12.1/firebase-app.js";
+    import { getDatabase, ref, get, push, set, onValue, serverTimestamp, query, orderByChild } from "https://www.gstatic.com/firebasejs/12.12.1/firebase-database.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyCl94QXCLGwWY-WUwYgPgTRiNoMcsukXqM",
+      authDomain: "website-hello-cfecc.firebaseapp.com",
+      databaseURL: "https://website-hello-cfecc-default-rtdb.europe-west1.firebasedatabase.app",
+      projectId: "website-hello-cfecc",
+      storageBucket: "website-hello-cfecc.firebasestorage.app",
+      messagingSenderId: "1008124745056",
+      appId: "1:1008124745056:web:86d2d4e61f32f392997a05"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
+
+    const gate = document.getElementById('gate');
+    const passcodeInput = document.getElementById('passcode-input');
+    const gateError = document.getElementById('gate-error');
+    const main = document.getElementById('main');
+
+    const prefix = 'Hello';
+    let lastWriteTime = 0;
+
+    // Check passcode against Firebase
+    passcodeInput.addEventListener('keydown', async (e) => {
+      if (e.key !== 'Enter') return;
+      const entered = passcodeInput.value;
+      passcodeInput.value = '';
+
+      try {
+        const snap = await get(ref(db, 'passcode'));
+        const correct = snap.val();
+        if (entered === String(correct)) {
+          gate.style.opacity = '0';
+          gate.style.transition = 'opacity 0.6s ease';
+          setTimeout(() => {
+            gate.style.display = 'none';
+            main.style.display = 'block';
+            initMessages();
+          }, 600);
+        } else {
+          gateError.style.display = 'block';
+          passcodeInput.style.borderBottomColor = '#444';
+          setTimeout(() => passcodeInput.style.borderBottomColor = '', 600);
+        }
+      } catch (err) {
+        gateError.style.display = 'block';
+      }
+    });
+
+    function initMessages() {
+      // Listen for saved messages in realtime
+      const messagesRef = query(ref(db, 'messages'), orderByChild('timestamp'));
+      onValue(messagesRef, (snap) => {
+        // Clear all saved entries, keep active input
+        const activeEntry = document.getElementById('active-entry');
+        main.innerHTML = '';
+
+        snap.forEach((child) => {
+          const data = child.val();
+          const div = document.createElement('div');
+          div.className = 'entry';
+          div.innerHTML = `<div class="saved-text">${escapeHtml(data.text)}</div>`;
+          main.appendChild(div);
+        });
+
+        // Re-add active input at bottom
+        addActiveInput();
+      });
+    }
+
+    function addActiveInput() {
+      const entry = document.createElement('div');
+      entry.className = 'entry';
+      entry.id = 'active-entry';
+
+      const editor = document.createElement('div');
+      editor.contentEditable = 'true';
+      editor.className = 'active-entry';
+      editor.id = 'editor';
+      editor.innerText = prefix;
+
+      const counter = document.createElement('div');
+      counter.className = 'counter';
+      counter.innerText = '13 left';
+
+      entry.appendChild(editor);
+      entry.appendChild(counter);
+      main.appendChild(entry);
+      editor.focus();
+
+      // Move cursor to end
+      const range = document.createRange();
+      range.selectNodeContents(editor);
+      range.collapse(false);
+      window.getSelection().removeAllRanges();
+      window.getSelection().addRange(range);
+
+      editor.addEventListener('input', () => {
+        const text = editor.innerText;
+        if (!text.startsWith(prefix)) {
+          editor.innerText = prefix;
+          moveCursorToEnd(editor);
+        }
+        const userText = editor.innerText.slice(prefix.length);
+        if (userText.length > 13) {
+          editor.innerText = prefix + userText.slice(0, 13);
+          moveCursorToEnd(editor);
+        }
+        const left = 13 - editor.innerText.slice(prefix.length).length;
+        counter.innerText = left + ' left';
+      });
+
+      editor.addEventListener('keydown', async (e) => {
+        if (e.key !== 'Enter') return;
+        e.preventDefault();
+
+        const userText = editor.innerText.slice(prefix.length).trim();
+        if (!userText) return;
+
+        // Rate limit: max 1 write per second
+        const now = Date.now();
+        if (now - lastWriteTime < 1000) return;
+        lastWriteTime = now;
+
+        const fullText = prefix + userText;
+        await push(ref(db, 'messages'), {
+          text: fullText,
+          timestamp: serverTimestamp()
+        });
+        // onValue listener will refresh the list and add new input
+      });
+    }
+
+    function moveCursorToEnd(el) {
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      range.collapse(false);
+      window.getSelection().removeAllRanges();
+      window.getSelection().addRange(range);
+    }
+
+    function escapeHtml(str) {
+      return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+  </script>
+</body>
+</html>
